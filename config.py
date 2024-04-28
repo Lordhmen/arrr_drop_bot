@@ -8,7 +8,7 @@ from aiogram import Bot, Dispatcher
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
-MANIFEST_URL = '/pytonconnect-manifest.json'
+MANIFEST_URL = 'https://raw.githubusercontent.com/Lordhmen/arrr_drop_bot/master/pytonconnect-manifest.json'
 
 # Создаем экземпляр виртуального хранилища MemoryStorage
 storage = MemoryStorage()
