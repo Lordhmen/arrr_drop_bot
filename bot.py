@@ -1,14 +1,10 @@
 import asyncio
 import sqlite3
 from io import BytesIO
-from pprint import pprint
 
 import qrcode
-from aiogram import Bot, Dispatcher, types
-from aiogram.contrib.fsm_storage.memory import MemoryStorage
-from aiogram.contrib.middlewares.logging import LoggingMiddleware
+from aiogram import types
 from aiogram.dispatcher import FSMContext
-from aiogram.dispatcher.filters.state import State, StatesGroup
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from aiogram.utils import executor
 from aiogram.utils.exceptions import ChatNotFound, Unauthorized
@@ -26,7 +22,7 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS users (
                   id INTEGER PRIMARY KEY,
                   username TEXT,
                   first_name TEXT,
-                  wallet_address TEXT,
+                  wallet_address TEXT DEFAULT '',
                   subscribed INTEGER DEFAULT 0,
                   balance INTEGER DEFAULT 100
                 )''')
@@ -39,11 +35,6 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS referrals (
 conn.commit()
 
 
-# Класс состояний FSM
-class Form(StatesGroup):
-    waiting_for_wallet = State()
-
-
 # Обработчик команды /start с аргументом (реферальный идентификатор)
 @dp.message_handler(commands=['start'])
 async def cmd_start(message: types.Message):
@@ -53,12 +44,12 @@ async def cmd_start(message: types.Message):
     first_name = message.from_user.first_name
 
     # Проверяем, есть ли пользователь в базе данных
-    cursor.execute("SELECT id, wallet_address FROM users WHERE id=?", (user_id,))
+    cursor.execute("SELECT id FROM users WHERE id=?", (user_id,))
     user_exists = cursor.fetchone()
 
     if not user_exists:
-        cursor.execute("INSERT INTO users (id, username, first_name, wallet_address) VALUES (?, ?, ?, ?)",
-                       (user_id, message.from_user.username, message.from_user.first_name, ''))
+        cursor.execute("INSERT INTO users (id, username, first_name) VALUES (?, ?, ?)",
+                       (user_id, username, first_name))
         conn.commit()
 
         # Проверяем, был ли передан реферальный идентификатор в аргументе
@@ -73,19 +64,20 @@ async def cmd_start(message: types.Message):
                 # Начисляем бонус рефереру
                 cursor.execute("UPDATE users SET balance=balance+200 WHERE id=?", (referrer_id,))
                 conn.commit()
-    await variant_ton_connect(message, chat_id)
 
-    # await check_subscription_and_send_intro(user_id, message)
+    await check_subscription_and_send_intro(user_id, message)
 
 
-async def variant_ton_connect(message, chat_id):
+@dp.callback_query_handler(lambda query: query.data == 'start_ton_connect')
+async def variant_ton_connect(callback_query: types.CallbackQuery):
+    await callback_query.answer()
+    chat_id = callback_query.message.chat.id
     connector = get_connector(chat_id)
     mk_b = InlineKeyboardMarkup()
     wallets_list = connector.get_wallets()
     for wallet in wallets_list:
         mk_b.add(InlineKeyboardButton(text=wallet['name'], callback_data=f'connect:{wallet["name"]}'))
-    mk_b.row(InlineKeyboardButton(text='Start', callback_data='start'))
-    await message.answer(text='Choose wallet to connect', reply_markup=mk_b)
+    await callback_query.message.answer(text='Выберите кошелек для подключения:', reply_markup=mk_b)
 
 
 async def connect_wallet(message: Message, wallet_name: str):
@@ -99,7 +91,7 @@ async def connect_wallet(message: Message, wallet_name: str):
             wallet = w
 
     if wallet is None:
-        raise Exception(f'Unknown wallet: {wallet_name}')
+        raise Exception(f'Не известный кошелек: {wallet_name}')
 
     generated_url = await connector.connect(wallet)
 
@@ -109,7 +101,7 @@ async def connect_wallet(message: Message, wallet_name: str):
     img.save(qr_code_stream, 'PNG')
     qr_code_stream.seek(0)
 
-    await message.answer_photo(qr_code_stream, caption='Scan this QR code to connect your wallet')
+    await message.answer_photo(qr_code_stream, caption='Отсканируйте этот QR-код, чтобы подключить свой кошелек')
 
     for i in range(1, 180):
         await asyncio.sleep(1)
@@ -117,10 +109,12 @@ async def connect_wallet(message: Message, wallet_name: str):
             if connector.account.address:
                 wallet_address = connector.account.address
                 wallet_address = Address(wallet_address).to_str(is_bounceable=False)
-                await message.answer(f'You are connected with address <code>{wallet_address}</code>')
+                cursor.execute("UPDATE users SET wallet_address=? WHERE id=?", (wallet_address, message.chat.id))
+                conn.commit()
+                await message.answer(f'Вы успешно подключили адрес <code>{wallet_address}</code>')
             return
-
-    await message.answer('Timeout error!')
+    else:
+        await message.answer('Вышло время для подключения!')
 
 
 @dp.callback_query_handler(lambda call: call.data.startswith('connect:'))
@@ -143,11 +137,18 @@ async def check_subscription_and_send_intro(user_id, message):
     subscribed = await check_subscription(user_id)
 
     if subscribed:
-        # Создаем кнопку с реферальной программой
-        referral_button = types.InlineKeyboardButton("Реферальная программа", callback_data="referral_program")
-        keyboard = types.InlineKeyboardMarkup().add(referral_button)
+        cursor.execute("SELECT wallet_address, balance FROM users WHERE id=?", (user_id,))
+        user_wallet_address_and_balance = cursor.fetchone()
 
-        await message.answer("Добро пожаловать! Ваш баланс: 100 ARRR", reply_markup=keyboard)
+        # Создаем кнопку с реферальной программой
+        keyboard = types.InlineKeyboardMarkup()
+        referral_button = types.InlineKeyboardButton("Реферальная программа", callback_data="referral_program")
+        keyboard.add(referral_button)
+        if not user_wallet_address_and_balance[0]:
+            ton_connect_button = types.InlineKeyboardButton("Подключить кошелек", callback_data="start_ton_connect")
+            keyboard.add(ton_connect_button)
+
+        await message.answer(f"Добро пожаловать! Ваш баланс: {user_wallet_address_and_balance[1]} ARRR", reply_markup=keyboard)
     else:
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Подписаться на канал", url="https://t.me/ARRR_TON"))
