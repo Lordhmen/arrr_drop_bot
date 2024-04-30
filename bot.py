@@ -1,21 +1,17 @@
 import asyncio
-import sqlite3
 from io import BytesIO
 
 import qrcode
 from aiogram import types
 from aiogram.dispatcher import FSMContext
+from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.types import ParseMode, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
 from aiogram.utils import executor
 from aiogram.utils.exceptions import ChatNotFound, Unauthorized
 from pytoniq_core import Address
 
-from config import dp, bot
+from config import *
 from connector import get_connector
-
-# Создаем соединение с базой данных
-conn = sqlite3.connect('bot.db')
-cursor = conn.cursor()
 
 # Создаем таблицу для хранения информации о пользователях, если ее нет
 cursor.execute('''CREATE TABLE IF NOT EXISTS users (
@@ -24,15 +20,18 @@ cursor.execute('''CREATE TABLE IF NOT EXISTS users (
                   first_name TEXT,
                   wallet_address TEXT DEFAULT '',
                   subscribed INTEGER DEFAULT 0,
-                  balance INTEGER DEFAULT 100
+                  balance INTEGER DEFAULT 10
                 )''')
 # Создаем таблицу для хранения информации о рефералах
 cursor.execute('''CREATE TABLE IF NOT EXISTS referrals (
                   referrer_id INTEGER,
-                  referral_id INTEGER,
-                  FOREIGN KEY(referrer_id) REFERENCES users(id)
+                  referral_id INTEGER
                 )''')
 conn.commit()
+
+
+class WalletState(StatesGroup):
+    waiting_for_wallet = State()
 
 
 # Обработчик команды /start с аргументом (реферальный идентификатор)
@@ -62,7 +61,7 @@ async def cmd_start(message: types.Message):
                 # Если пользователь существует, добавляем информацию о реферале
                 cursor.execute("INSERT INTO referrals (referrer_id, referral_id) VALUES (?, ?)", (referrer_id, user_id))
                 # Начисляем бонус рефереру
-                cursor.execute("UPDATE users SET balance=balance+200 WHERE id=?", (referrer_id,))
+                cursor.execute("UPDATE users SET balance=balance+20 WHERE id=?", (referrer_id,))
                 conn.commit()
 
     await check_subscription_and_send_intro(user_id, message)
@@ -77,7 +76,37 @@ async def variant_ton_connect(callback_query: types.CallbackQuery):
     wallets_list = connector.get_wallets()
     for wallet in wallets_list:
         mk_b.add(InlineKeyboardButton(text=wallet['name'], callback_data=f'connect:{wallet["name"]}'))
+    mk_b.add(InlineKeyboardButton("Ввести кошелек вручную", callback_data="manual_wallet_input"))
     await callback_query.message.answer(text='Выберите кошелек для подключения:', reply_markup=mk_b)
+
+
+@dp.callback_query_handler(lambda query: query.data == 'manual_wallet_input', state="*")
+async def manual_wallet_input(callback_query: types.CallbackQuery, state: FSMContext):
+    await WalletState.waiting_for_wallet.set()
+    await callback_query.answer()
+    mk_b = InlineKeyboardMarkup()
+    mk_b.add(InlineKeyboardButton("Отмена", callback_data="cancel_wallet_input"))
+    await callback_query.message.answer("Введите ваш адрес кошелька вручную или нажмите кнопку 'Отмена'.",
+                                        reply_markup=mk_b)
+
+
+# Обработчик кнопки "Отмена ввода"
+@dp.callback_query_handler(lambda query: query.data == 'cancel_wallet_input', state="*")
+async def cancel_wallet_input(callback_query: types.CallbackQuery, state: FSMContext):
+    await state.finish()
+    await callback_query.answer()
+    await variant_ton_connect(callback_query)
+
+
+@dp.message_handler(state=WalletState.waiting_for_wallet)
+async def handle_manual_wallet_input(message: types.Message, state: FSMContext):
+    wallet_address = message.text
+
+    # Сохраняем адрес кошелька в базу данных
+    cursor.execute("UPDATE users SET wallet_address=? WHERE id=?", (wallet_address, message.chat.id))
+    conn.commit()
+    await message.answer("Ваш кошелек успешно сохранен.")
+    await state.finish()
 
 
 async def connect_wallet(message: Message, wallet_name: str):
@@ -101,7 +130,9 @@ async def connect_wallet(message: Message, wallet_name: str):
     img.save(qr_code_stream, 'PNG')
     qr_code_stream.seek(0)
 
-    await message.answer_photo(qr_code_stream, caption='Отсканируйте этот QR-код, чтобы подключить свой кошелек')
+    await message.answer_photo(qr_code_stream, caption=f"Отсканируйте этот QR-код, чтобы подключить свой кошелек "
+                                                       f'или перейдите по данной <a href="{generated_url}">ссылке</a>',
+                               parse_mode=ParseMode.HTML)
 
     for i in range(1, 180):
         await asyncio.sleep(1)
@@ -148,21 +179,31 @@ async def check_subscription_and_send_intro(user_id, message):
             ton_connect_button = types.InlineKeyboardButton("Подключить кошелек", callback_data="start_ton_connect")
             keyboard.add(ton_connect_button)
 
-        await message.answer(f"Добро пожаловать! Ваш баланс: {user_wallet_address_and_balance[1]} ARRR", reply_markup=keyboard)
+        await message.answer(f"$ARRR, мертвые не рассказывают сказки, но мы здесь, чтобы заставить монетки звенеть! "
+                             f"Добро пожаловать на борт, пират! \n$ARRR -  твой проводник в мир криптовалюты и рома!"
+                             f"\n\nВаш баланс: {user_wallet_address_and_balance[1]} ARRR", reply_markup=keyboard)
     else:
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Подписаться на канал", url="https://t.me/ARRR_TON"))
         keyboard.add(types.InlineKeyboardButton("Проверить подписку", callback_data="check_subscription"))
-        await message.answer("Добро пожаловать! Подпишитесь на канал и нажмите кнопку ниже, чтобы продолжить.",
+        await message.answer(f"Наша маленькая команда стремится добыть не только золото, но и спиртное! "
+                             f"Присоединяйся к нам и будь в курсе последних новостей о крипте и нашем роме, "
+                             f"который доступен только за золотом наших монет $ARRR! "
+                             f"\n\nПодпишитесь на канал и нажмите кнопку ниже, чтобы продолжить.",
                              reply_markup=keyboard)
 
 
 # Функция для отправки сообщения о реферальной программе
 async def send_referral_info(user_id):
+    value_ref = cursor.execute("SELECT * FROM referrals WHERE referrer_id=?", (user_id,))
+    value_ref = value_ref.fetchall()
     referral_link = f"https://t.me/arrr_drop_bot?start={user_id}"
-    referral_text = "Пригласите друзей и получите бонусы!\n\nКаждый новый пользователь, приглашенный по вашей ссылке, " \
-                    "получает бонус 100 ARRR, а вы получаете 200 ARRR, когда они завершат регистрацию и подпишутся на канал."
-    await bot.send_message(user_id, f"Ваша реферальная ссылка:\n{referral_link}\n\n{referral_text}",
+    referral_text = ("Аррр, ты капитан удачи! Делись пиратским духом со своими друзьями и получай золото с $ARRR!"
+                     "\nУ тебя есть реферальная ссылка, используй её и раздели богатства с друзьями. "
+                     "Каждое новое членство из твоего приглашения приносит тебе и твоим друзьям бонус в виде $ARRR монет.")
+    await bot.send_message(user_id, f"{referral_text}"
+                                    f"\n\nВаша реферальная ссылка: <code>{referral_link}</code>"
+                                    f"\n\nКол-во приглашенных рефералов: {len(value_ref)}",
                            parse_mode=ParseMode.HTML)
 
 
@@ -177,6 +218,7 @@ async def process_referral_program(callback_query: types.CallbackQuery):
 # Обработчик для проверки подписки
 @dp.callback_query_handler(lambda query: query.data == 'check_subscription')
 async def process_check_subscription(callback_query: types.CallbackQuery):
+    await callback_query.answer()
     user_id = callback_query.from_user.id
     subscribed = await check_subscription(user_id)
 
