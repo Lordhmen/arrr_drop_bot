@@ -1,4 +1,5 @@
 import os
+import sqlite3
 
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.contrib.middlewares.logging import LoggingMiddleware
@@ -18,3 +19,12 @@ storage = MemoryStorage()
 bot = Bot(token=BOT_TOKEN, parse_mode=ParseMode.HTML)
 dp = Dispatcher(bot, storage=storage)
 dp.middleware.setup(LoggingMiddleware())
+
+# Создаем соединение с базой данных
+conn = sqlite3.connect('bot.db')
+cursor = conn.cursor()
+
+photo_start = 'photo_start.jpg'
+photo_ref = 'photo_ref.jpg'
+photo_sub = 'photo_sub.jpg'
+photo_main = 'photo_main.jpg'

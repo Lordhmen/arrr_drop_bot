@@ -179,18 +179,23 @@ async def check_subscription_and_send_intro(user_id, message):
             ton_connect_button = types.InlineKeyboardButton("Подключить кошелек", callback_data="start_ton_connect")
             keyboard.add(ton_connect_button)
 
-        await message.answer(f"$ARRR, мертвые не рассказывают сказки, но мы здесь, чтобы заставить монетки звенеть! "
-                             f"Добро пожаловать на борт, пират! \n$ARRR -  твой проводник в мир криптовалюты и рома!"
-                             f"\n\nВаш баланс: {user_wallet_address_and_balance[1]} ARRR", reply_markup=keyboard)
+        with open(photo_main, 'rb') as photo:
+            await message.answer_photo(photo,
+                                       caption=f"$ARRR, мертвые не рассказывают сказки, но мы здесь, чтобы заставить монетки звенеть! "
+                                               f"Добро пожаловать на борт, пират! \n$ARRR -  твой проводник в мир криптовалюты и рома!"
+                                               f"\n\nВаш баланс: {user_wallet_address_and_balance[1]} ARRR",
+                                       reply_markup=keyboard)
     else:
         keyboard = types.InlineKeyboardMarkup()
         keyboard.add(types.InlineKeyboardButton("Подписаться на канал", url="https://t.me/ARRR_TON"))
         keyboard.add(types.InlineKeyboardButton("Проверить подписку", callback_data="check_subscription"))
-        await message.answer(f"Наша маленькая команда стремится добыть не только золото, но и спиртное! "
-                             f"Присоединяйся к нам и будь в курсе последних новостей о крипте и нашем роме, "
-                             f"который доступен только за золотом наших монет $ARRR! "
-                             f"\n\nПодпишитесь на канал и нажмите кнопку ниже, чтобы продолжить.",
-                             reply_markup=keyboard)
+        with open(photo_sub, 'rb') as photo:
+            await message.answer_photo(photo,
+                                       caption=f"Наша маленькая команда стремится добыть не только золото, но и спиртное! "
+                                               f"Присоединяйся к нам и будь в курсе последних новостей о крипте и нашем роме, "
+                                               f"который доступен только за золотом наших монет $ARRR! "
+                                               f"\n\nПодпишитесь на канал и нажмите кнопку ниже, чтобы продолжить.",
+                                       reply_markup=keyboard)
 
 
 # Функция для отправки сообщения о реферальной программе
@@ -201,10 +206,12 @@ async def send_referral_info(user_id):
     referral_text = ("Аррр, ты капитан удачи! Делись пиратским духом со своими друзьями и получай золото с $ARRR!"
                      "\nУ тебя есть реферальная ссылка, используй её и раздели богатства с друзьями. "
                      "Каждое новое членство из твоего приглашения приносит тебе и твоим друзьям бонус в виде $ARRR монет.")
-    await bot.send_message(user_id, f"{referral_text}"
-                                    f"\n\nВаша реферальная ссылка: <code>{referral_link}</code>"
-                                    f"\n\nКол-во приглашенных рефералов: {len(value_ref)}",
-                           parse_mode=ParseMode.HTML)
+
+    with open(photo_ref, 'rb') as photo:
+        await bot.send_photo(chat_id=user_id, photo=photo, caption=f"{referral_text}"
+                                                                   f"\n\nВаша реферальная ссылка: <code>{referral_link}</code>"
+                                                                   f"\n\nКол-во приглашенных рефералов: {len(value_ref)}",
+                             parse_mode=ParseMode.HTML)
 
 
 # Обработчик для кнопки "Реферальная программа"
