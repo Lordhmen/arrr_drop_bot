@@ -202,7 +202,7 @@ async def check_subscription_and_send_intro(user_id, message):
 async def send_referral_info(user_id):
     value_ref = cursor.execute("SELECT * FROM referrals WHERE referrer_id=?", (user_id,))
     value_ref = value_ref.fetchall()
-    referral_link = f"https://t.me/arrr_drop_bot?start={user_id}"
+    referral_link = f"https://t.me/ARRRdrop_bot?start={user_id}"
     referral_text = ("Аррр, ты капитан удачи! Делись пиратским духом со своими друзьями и получай золото с $ARRR!"
                      "\nУ тебя есть реферальная ссылка, используй её и раздели богатства с друзьями. "
                      "Каждое новое членство из твоего приглашения приносит тебе и твоим друзьям бонус в виде $ARRR монет.")
