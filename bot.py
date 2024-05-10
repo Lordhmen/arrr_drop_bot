@@ -1,5 +1,7 @@
 import asyncio
+import io
 from io import BytesIO
+import pandas as pd
 
 import qrcode
 from aiogram import types
@@ -235,6 +237,41 @@ async def process_check_subscription(callback_query: types.CallbackQuery):
         await check_subscription_and_send_intro(user_id, callback_query.message)
     else:
         await callback_query.answer("Пожалуйста, подпишитесь на канал @ARRR_TON, чтобы продолжить.", show_alert=True)
+
+
+# Функция для экспорта данных из таблицы в Excel и отправки в личные сообщения
+async def export_to_excel_and_send(message: types.Message):
+    # Запрос к базе данных для получения данных из таблицы users
+    cursor.execute('''SELECT id, username, first_name, wallet_address, balance FROM users''')
+    users_data = cursor.fetchall()
+
+    # Запрос к базе данных для получения данных из таблицы referrals
+    cursor.execute('''SELECT * FROM referrals''')
+    referrals_data = cursor.fetchall()
+
+    # Создание DataFrame для пользователей
+    users_df = pd.DataFrame(users_data, columns=['id', 'username', 'first_name', 'wallet_address', 'balance'])
+
+    # Создание DataFrame для рефералов
+    referrals_df = pd.DataFrame(referrals_data, columns=['referrer_id', 'referral_id'])
+
+    # Создание нового Excel-файла
+    excel_file = io.BytesIO()
+    with pd.ExcelWriter(excel_file, engine='openpyxl') as writer:
+        users_df.to_excel(writer, sheet_name='Users', index=False)
+        referrals_df.to_excel(writer, sheet_name='Referrals', index=False)
+
+    # Перемещение указателя файла в начало
+    excel_file.seek(0)
+
+    # Отправка файла пользователю
+    await message.reply_document(excel_file, caption="Excel файл с данными")
+
+
+# Определение обработчика команды для экспорта данных
+@dp.message_handler(commands=['export_bd'])
+async def export_command(message: types.Message):
+    await export_to_excel_and_send(message)
 
 
 if __name__ == '__main__':
