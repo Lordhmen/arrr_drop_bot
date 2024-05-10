@@ -2,6 +2,7 @@ import asyncio
 import io
 from io import BytesIO
 import pandas as pd
+from openpyxl import Workbook
 
 import qrcode
 from aiogram import types
@@ -265,7 +266,7 @@ async def export_to_excel_and_send(message: types.Message):
     excel_file.seek(0)
 
     # Отправка файла пользователю
-    await message.reply_document(excel_file, caption="Excel файл с данными")
+    await message.reply_document(document=types.InputFile(excel_file, filename='exported_data.xlsx'), caption="Excel файл с данными")
 
 
 # Определение обработчика команды для экспорта данных
